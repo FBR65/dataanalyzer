@@ -1,0 +1,18 @@
+[project]
+name = "dataanalyzer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "gradio>=5.29.0",
+    "mariadb>=1.1.12",
+    "matplotlib>=3.10.3",
+    "openai>=1.78.1",
+    "pandas>=2.2.3",
+    "pillow>=11.2.1",
+    "pymongo>=4.12.1",
+    "python-dotenv>=1.1.0",
+    "requests>=2.32.3",
+    "sqlalchemy>=2.0.40",
+]
