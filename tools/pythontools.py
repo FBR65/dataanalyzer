@@ -56,16 +56,21 @@ class PythonREPL:
 
 
 async def data_visualization(code: str, repl: PythonREPL) -> str:
-    """Execute Python code. Use matplotlib for visualization. Saves the code."""
-    # Add imports for Decimal handling to the visualization code
-    code = (
-        """
+    """
+    Execute Python code for data visualization.
+    Args:
+        code: str - The Python code to execute (including data handling)
+        repl: PythonREPL - The REPL instance
+    Returns:
+        str - Base64 encoded image or error message
+    """
+    # Add imports for visualization code
+    code = """
 from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import matplotlib.pyplot as plt
-"""
-        + code
-    )
+
+""" + code
 
     logger.info(f"Tool 'data_visualization' called with code:\n```python\n{code}\n```")
 
@@ -121,42 +126,3 @@ import matplotlib.pyplot as plt
         logger.error(f"Data visualization failed. Error:\n{error_msg}")
         # Return the error message instead of the base64 string
         return error_msg
-
-
-# Convert data to DataFrame
-df = pd.DataFrame(
-    [
-        {"_id": "Berlin", "average_age": 30.0},
-        {"_id": "Hamburg", "average_age": 30.0},
-        {"_id": "Munich", "average_age": 28.0},
-    ]
-)
-
-# Dynamically handle column names
-if len(df.columns) >= 2:
-    # Use the first column as the index and the second column as the y-axis
-    index_column = df.columns[0]
-    y_axis_column = df.columns[1]
-
-    logger.info(
-        f"Using '{index_column}' as the index and '{y_axis_column}' as the y-axis."
-    )
-
-    # Create appropriate visualization based on data
-    plt.figure(figsize=(10, 6))
-
-    # Set the index dynamically
-    df.set_index(index_column, inplace=True)
-
-    # Create bar plot
-    df.plot(kind="bar", y=y_axis_column, legend=False)
-    plt.xlabel(index_column.replace("_", " ").capitalize())
-    plt.ylabel(y_axis_column.replace("_", " ").capitalize())
-    plt.xticks(rotation=45)
-
-    plt.title("Data Visualization")
-    plt.tight_layout()
-else:
-    logger.warning(
-        "Dataset does not have enough columns for visualization. Skipping plot creation."
-    )
