@@ -8,15 +8,15 @@ import time
 from typing import Any, List, Dict, Optional, Union
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure, ConfigurationError
-from bson import ObjectId  # Für potenzielle Typendarstellung und Konvertierung
-from pprint import pprint  # Für das schöne Drucken von Strukturen
+from bson import ObjectId
+from pprint import pprint
 
-# Für OpenAI-kompatible API
+
 try:
     import openai
 except ImportError:
     openai = None
-    # print("OpenAI-Bibliothek nicht gefunden. NL zu MongoDB-Abfragegenerierung wird nicht verfügbar sein.")
+
 
 logger = logging.getLogger("mcp_server.services.mongodb_connector")
 
@@ -33,8 +33,8 @@ class MongoDBConnector:
         connection_string: str = "mongodb://localhost:27017/",
         openai_api_key: Optional[str] = None,
         openai_api_base: Optional[str] = None,
-        llm_model_name: str = "qwen2.5",  # Or another suitable model
-        auth_source: Optional[str] = "admin",  # Allow specifying authSource
+        llm_model_name: str = "qwen2.5",
+        auth_source: Optional[str] = "admin",
     ):
         """Initialize MongoDB connector with improved authentication handling."""
         self.connection_string = connection_string
@@ -42,20 +42,17 @@ class MongoDBConnector:
         self.openai_api_key = openai_api_key
         self.openai_api_base = openai_api_base
         self.llm_model_name = llm_model_name
-        self.auth_source = auth_source  # Store the authSource
-
+        self.auth_source = auth_source
         self.logger = logging.getLogger(__name__)
         self.logger.info(
             f"Initializing MongoDBConnector with connection string: {connection_string}, authSource: {auth_source}"
         )
 
         try:
-            # Parse connection string to extract authentication details
             from urllib.parse import urlparse
 
             parsed_uri = urlparse(connection_string)
 
-            # If no auth in connection string, try without authentication
             if not parsed_uri.username and not parsed_uri.password:
                 self.client = MongoClient(
                     connection_string,
@@ -63,15 +60,13 @@ class MongoDBConnector:
                     connectTimeoutMS=5000,
                 )
             else:
-                # Try with provided authentication and authSource
                 self.client = MongoClient(
                     connection_string,
                     serverSelectionTimeoutMS=5000,
                     connectTimeoutMS=5000,
-                    authSource=self.auth_source,  # Use the specified authSource
+                    authSource=self.auth_source,
                 )
 
-            # Test connection
             self.client.admin.command("ping")
             logger.info(
                 f"MongoDB client successfully initialized for: {self._mask_uri_credentials(connection_string)}"
@@ -108,7 +103,7 @@ class MongoDBConnector:
                 parsed = parsed._replace(netloc=masked_netloc)
                 return urlunparse(parsed)
             return uri
-        except Exception:  # Fallback, falls das Parsen fehlschlägt
+        except Exception:
             return "mongodb://<credentials_masked>@<host>"
 
     def close_connection(self):
@@ -130,7 +125,7 @@ class MongoDBConnector:
             return db_names
         except OperationFailure as e:
             logger.error(f"Fehler beim Auflisten der Datenbanken: {e}")
-            if e.code == 13:  # Unauthorized
+            if e.code == 13:
                 logger.warning(
                     "Benutzer hat möglicherweise keine Berechtigung, alle Datenbanken aufzulisten."
                 )
@@ -150,7 +145,6 @@ class MongoDBConnector:
             raise ValueError("Database name cannot be empty.")
 
         try:
-            # Ensure the database exists before listing collections
             if db_name not in self.list_databases():
                 raise ValueError(f"Database '{db_name}' does not exist.")
 
@@ -195,12 +189,9 @@ class MongoDBConnector:
         logger.debug(
             f"Ermittle Struktur für Collection '{collection_name}' in Datenbank '{db_name}' mit sample_size={sample_size}"
         )
-        # field_name: type_string. Verwendet, um Typen zu sammeln.
-        # Nimmt den Typ des ersten Nicht-Null-Wertes, der für ein Feld gefunden wird.
+
         structure_map: Dict[str, str] = {}
-        field_order: List[
-            str
-        ] = []  # Um eine gewisse Reihenfolge der Felder beizubehalten
+        field_order: List[str] = []
 
         try:
             db = self.client[db_name]
@@ -218,14 +209,13 @@ class MongoDBConnector:
                 if not doc:
                     continue
                 for key, value in doc.items():
-                    if key not in structure_map:  # Neues Feld hinzufügen
+                    if key not in structure_map:
                         field_order.append(key)
                         structure_map[key] = type(value).__name__
-                    # Wenn der bisherige Typ 'NoneType' war und ein neuer Wert nicht None ist, aktualisiere den Typ
+
                     elif structure_map[key] == "NoneType" and value is not None:
                         structure_map[key] = type(value).__name__
 
-            # Formatieren für die Ausgabe
             schema_representation = []
             for field_name in field_order:
                 schema_representation.append(
@@ -274,10 +264,9 @@ class MongoDBConnector:
                     "admin",
                     "local",
                     "config",
-                ]  # Übliche System-DBs ausschließen
-                databases_to_inspect = [db for db in all_dbs if db not in system_dbs][
-                    :3
-                ]  # Max. 3 DBs für den Überblick
+                ]
+                databases_to_inspect = [db for db in all_dbs if db not in system_dbs]
+
                 if (
                     not databases_to_inspect and all_dbs
                 ):  # Falls nur System-DBs vorhanden sind, eine auswählen
@@ -321,7 +310,7 @@ class MongoDBConnector:
                 schema_parts.append(
                     f"  (Fehler beim Auflisten der Collections für DB {db_name}: {e_db})"
                 )
-            schema_parts.append("")  # Leerzeile zwischen Datenbanken
+            schema_parts.append("")
 
         if not schema_parts:
             return "Es konnten keine Datenbankschema-Informationen abgerufen werden."
@@ -398,8 +387,8 @@ Beispiel Aggregationspipeline-Format: [{{"$match": {{"status": "A"}}}}, {{"$grou
 """
         user_prompt_content = f"Benutzerfrage: {natural_language_input}\nMongoDB-Abfrage (Python dict/list):"
 
-        max_retries = 3  # Number of retries for OpenAI API
-        retry_delay = 2  # Initial delay in seconds
+        max_retries = 3
+        retry_delay = 2
 
         for attempt in range(max_retries):
             try:
@@ -417,7 +406,7 @@ Beispiel Aggregationspipeline-Format: [{{"$match": {{"status": "A"}}}}, {{"$grou
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt_content},
                     ],
-                    temperature=0.1,  # Niedrigere Temperatur für deterministischere Abfragen
+                    temperature=0.1,
                 )
 
                 generated_query_str = completion.choices[0].message.content.strip()
@@ -428,7 +417,6 @@ Beispiel Aggregationspipeline-Format: [{{"$match": {{"status": "A"}}}}, {{"$grou
                 import ast
 
                 try:
-                    # Bereinige häufige LLM-Artefakte
                     for prefix in ["```python", "```json", "```"]:
                         if generated_query_str.startswith(prefix):
                             generated_query_str = generated_query_str[
@@ -464,8 +452,7 @@ Beispiel Aggregationspipeline-Format: [{{"$match": {{"status": "A"}}}}, {{"$grou
                         f"Retrying OpenAI API request ({attempt + 1}/{max_retries})..."
                     )
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
+                    retry_delay *= 2
                     raise RuntimeError(
                         f"Fehler bei der Generierung der MongoDB-Abfrage aufgrund eines API-Fehlers: {e}"
                     ) from e
@@ -514,7 +501,7 @@ Beispiel Aggregationspipeline-Format: [{{"$match": {{"status": "A"}}}}, {{"$grou
                 cursor = collection.find(query_details, **(find_options or {}))
                 results = list(cursor)
             elif query_type == "aggregate":
-                cursor = collection.aggregate(query_details)  # type: ignore
+                cursor = collection.aggregate(query_details)
                 results = list(cursor)
             else:
                 raise ValueError(
@@ -523,7 +510,6 @@ Beispiel Aggregationspipeline-Format: [{{"$match": {{"status": "A"}}}}, {{"$grou
 
             logger.debug(f"Abfrageausführung lieferte {len(results)} Dokumente.")
 
-            # Konvertiere ObjectIds in Strings für einfachere Handhabung (z.B. JSON-Serialisierung)
             def convert_objectids_in_doc(doc):
                 if isinstance(doc, list):
                     return [convert_objectids_in_doc(item) for item in doc]
@@ -565,20 +551,15 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    # --- Konfiguration ---
     MONGO_CONNECTION_STRING = os.getenv(
         "MONGO_CONNECTION_STRING",
-        "mongodb://localhost:27017/",  # Default to unauthenticated local connection
+        "mongodb://localhost:27017/",
     )
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "ollama")
-    OPENAI_API_BASE = os.getenv(
-        "OPENAI_API_BASE_URL", "http://localhost:11434/v1"
-    )  # Beispiel für lokales Ollama
-    LLM_MODEL = os.getenv(
-        "LLM_MODEL", "qwen2.5-coder:latest"
-    )  # Stellen Sie sicher, dass dieses Modell in Ollama verfügbar ist
+    OPENAI_API_BASE = os.getenv("OPENAI_API_BASE_URL", "http://localhost:11434/v1")
+    LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-coder:latest")
 
-    mongo_connector = None  # Vorinitialisieren für finally-Block
+    mongo_connector = None
     try:
         mongo_connector = MongoDBConnector(
             connection_string=MONGO_CONNECTION_STRING,
@@ -590,14 +571,12 @@ if __name__ == "__main__":
         logger.error(f"Fehler bei der Initialisierung des MongoDBConnectors: {e}")
         exit(1)
 
-    # Create database and user if needed
     async def setup_test_db(connector):
         if connector.client:
             try:
                 admin_db = connector.client.admin
                 test_db = connector.client["my_test_db"]
 
-                # Create user if it doesn't exist
                 try:
                     admin_db.command(
                         {
@@ -616,16 +595,14 @@ if __name__ == "__main__":
                 logger.error(f"Error setting up test database: {e}")
                 return None
 
-    # --- Basisoperationen ---
     try:
         print("\n--- Auflisten der Datenbanken ---")
         databases = mongo_connector.list_databases()
         pprint(databases)
 
-        test_db_name = "my_test_db"  # Eindeutiger Name für Tests
+        test_db_name = "my_test_db"
         test_coll_name = "users_test"
 
-        # Testdaten vorbereiten (erstellen/auffüllen, falls nicht vorhanden)
         logger.info(
             f"Vorbereiten der Testdatenbank '{test_db_name}' und Collection '{test_coll_name}'..."
         )
@@ -704,7 +681,6 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Ein unerwarteter Fehler ist aufgetreten: {e}", exc_info=True)
 
-    # --- Natürlichsprachliche Abfragen zu MongoDB ---
     if (
         mongo_connector
         and mongo_connector.openai_api_key
@@ -725,7 +701,7 @@ if __name__ == "__main__":
                 "Wie viele aktive Benutzer gibt es in jeder Stadt?",
                 test_db_name,
                 test_coll_name,
-            ),  # Erfordert Aggregation
+            ),
         ]
 
         for nl_query, db_name_for_query, coll_name_for_exec in nl_queries_for_test_db:
@@ -756,7 +732,7 @@ if __name__ == "__main__":
                         query_details=mongo_db_query,
                     )
                     print(f"Ergebnisse ({len(results)} Dokumente):")
-                    pprint(results[:5])  # Zeige die ersten 5 Ergebnisse
+                    pprint(results[:5])
                     if len(results) > 5:
                         print("...")
             except (ImportError, ValueError, RuntimeError) as e:

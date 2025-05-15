@@ -28,7 +28,7 @@ class DataAnalyzer:
         coding_model_name: str = "qwen2.5-coder",
         max_retries: int = 3,
         retry_delay: float = 2.0,
-        auth_source: Optional[str] = "admin",  # Add auth_source parameter
+        auth_source: Optional[str] = "admin",
     ):
         self.sql_db = None
         self.mongo_db = None
@@ -37,9 +37,8 @@ class DataAnalyzer:
         self.openai_api_base = openai_api_base
         self.llm_model_name = llm_model_name
         self.coding_model_name = coding_model_name
-        self.auth_source = auth_source  # Store auth_source
+        self.auth_source = auth_source
 
-        # Initialize database connections if connection strings are provided
         if sql_connection_string:
             retry_count = 0
             last_error = None
@@ -49,7 +48,7 @@ class DataAnalyzer:
                         sql_connection_string,
                         openai_api_key=openai_api_key,
                         openai_api_base=openai_api_base,
-                        llm_model_name=coding_model_name,  # Use coding model for SQL
+                        llm_model_name=coding_model_name,
                     )
                     logger.info("SQL database connection established")
                     break
@@ -72,13 +71,11 @@ class DataAnalyzer:
             last_error = None
             while retry_count < max_retries:
                 try:
-                    # Parse the connection string to check for authSource
                     from urllib.parse import urlparse, parse_qs, urlencode
 
                     parsed = urlparse(mongo_connection_string)
                     query_params = parse_qs(parsed.query)
 
-                    # Use authSource from the connection string if provided, otherwise fallback to self.auth_source
                     if "authSource" not in query_params:
                         query_params["authSource"] = [self.auth_source]
                         new_query = urlencode(query_params, doseq=True)
@@ -86,7 +83,6 @@ class DataAnalyzer:
                             query=new_query
                         ).geturl()
 
-                    # Log connection attempt (without credentials)
                     safe_conn_str = mongo_connection_string.replace(
                         "//" + mongo_connection_string.split("//")[1].split("@")[0],
                         "//<credentials>",
@@ -99,20 +95,16 @@ class DataAnalyzer:
 
                     logger.info("Initializing MongoDBConnector...")
 
-                    # Debug: Log the connection string used for MongoDBConnector
                     logger.info(
                         f"MongoDBConnector using connection string: {mongo_connection_string}"
                     )
 
-                    # Pass the updated connection string to MongoDBConnector
                     self.mongo_db = MongoDBConnector(
                         mongo_connection_string,
                         openai_api_key=openai_api_key,
                         openai_api_base=openai_api_base,
                         llm_model_name=coding_model_name,
-                        auth_source=query_params["authSource"][
-                            0
-                        ],  # Use the resolved authSource
+                        auth_source=query_params["authSource"][0],
                     )
 
                     break
@@ -154,7 +146,6 @@ class DataAnalyzer:
             Dictionary containing analysis results and metadata
         """
         try:
-            # Additional validation
             if not query or not query.strip():
                 return {"error": "Query cannot be empty", "status": "error"}
 
@@ -164,17 +155,15 @@ class DataAnalyzer:
                     "status": "error",
                 }
 
-            # Validate database type and connection
             if db_type == "sql" and not self.sql_db:
                 return {"error": "SQL database not connected", "status": "error"}
             elif db_type == "mongodb" and not self.mongo_db:
                 return {"error": "MongoDB not connected", "status": "error"}
 
-            # Get data from database with timeout
             try:
                 raw_data = await asyncio.wait_for(
                     self._fetch_data(query, db_type, target_db),
-                    timeout=30.0,  # 30 second timeout
+                    timeout=30.0,
                 )
             except asyncio.TimeoutError:
                 return {"error": "Database query timed out", "status": "error"}
@@ -182,7 +171,6 @@ class DataAnalyzer:
             if not raw_data:
                 return {"error": "No data returned from query", "status": "error"}
 
-            # Process results and generate report
             report = await self._generate_report(
                 query, raw_data, report_format, visualization_required
             )
@@ -212,7 +200,6 @@ class DataAnalyzer:
                 if not self.sql_db:
                     raise ValueError("SQL database connection not initialized")
 
-                # Generate SQL query using LLM
                 sql_query = await self.sql_db.generate_sql_from_natural_language(query)
                 results = self.sql_db.execute_query(sql_query)
                 return results
@@ -221,30 +208,25 @@ class DataAnalyzer:
                 if not self.mongo_db:
                     raise ValueError("MongoDB connection not initialized")
 
-                # Only generate query if MongoDBConnector is used
                 if hasattr(
                     self.mongo_db, "generate_mongodb_query_from_natural_language"
                 ):
-                    # Debug: Log the target_db and query
                     logger.info(f"MongoDB: target_db={target_db}, query='{query}'")
                     mongo_query = (
                         self.mongo_db.generate_mongodb_query_from_natural_language(
                             query,
-                            target_db_name="my_test_db",  # Default to my_test_db
+                            target_db_name="my_test_db",
                         )
                     )
                     logger.info(f"Query to MongoDB: {mongo_query}")
 
-                    # Determine query type (find or aggregate)
                     query_type = (
                         "aggregate" if isinstance(mongo_query, list) else "find"
                     )
 
-                    # Handle cases where target_db does not contain a dot
                     if "." in target_db:
                         db_name, collection_name = target_db.split(".", 1)
                     else:
-                        # Default to 'my_test_db' as the database if only the collection is provided
                         db_name = "my_test_db"
                         collection_name = target_db
 
@@ -252,15 +234,11 @@ class DataAnalyzer:
                         f"Accessing MongoDB database: {db_name}, collection: {collection_name}"
                     )
 
-                    # Use MongoDBConnector methods to access the collection
                     collection = self.mongo_db.get_collection(db_name, collection_name)
 
-                    # Execute the query
                     if query_type == "find":
-                        # mongo_query should be a dict representing the filter
                         results = list(collection.find(mongo_query))
                     elif query_type == "aggregate":
-                        # mongo_query should be a list of aggregation pipeline stages
                         results = list(
                             collection.aggregate(mongo_query, allowDiskUse=True)
                         )
@@ -287,7 +265,6 @@ class DataAnalyzer:
             import openai
 
             if self.openai_api_key == "ollama":
-                # Using Ollama
                 import requests
 
                 response = requests.post(
@@ -299,7 +276,6 @@ class DataAnalyzer:
                 )
                 return response.json()["choices"][0]["message"]["content"]
             else:
-                # Using OpenAI compatible API
                 openai.api_key = self.openai_api_key
                 if self.openai_api_base:
                     openai.api_base = self.openai_api_base
@@ -342,7 +318,6 @@ plt.tight_layout()
                     visualization_code, self.python_repl
                 )
 
-            # Generate report using LLM
             report_prompt = f"""
 Based on the following data, create a detailed {report_format} format report.
 The report should include:
@@ -374,13 +349,13 @@ Please format the response in {report_format} format.
 
     def _generate_visualization_code(self, data: List[Dict[str, Any]]) -> str:
         """Generate appropriate visualization code based on data structure"""
-        # Dynamically determine column names
+
         columns = list(data[0].keys()) if data else []
         if len(columns) < 2:
             raise ValueError("Insufficient columns for visualization.")
 
-        index_column = columns[0]  # Use the first column as the index
-        y_axis_column = columns[1]  # Use the second column as the y-axis
+        index_column = columns[0]
+        y_axis_column = columns[1]
 
         return f"""
 # Set the index dynamically
@@ -404,7 +379,6 @@ plt.xticks(rotation=45)
 
         if self.mongo_db:
             try:
-                # Properly close MongoDBConnector
                 self.mongo_db.close_connection()
                 logger.info("MongoDB connection closed")
             except Exception as e:
@@ -414,13 +388,11 @@ plt.xticks(rotation=45)
 async def initialize_mongodb(conn_str: str) -> bool:
     """Initialize MongoDB with required user and collections"""
     try:
-        # Verify user credentials
         logger.info("Verifying MongoDB user credentials...")
         test_client = MongoClient(conn_str)
-        test_client["my_test_db"].list_collection_names()  # Test connection
+        test_client["my_test_db"].list_collection_names()
         logger.info("MongoDB user credentials verified successfully")
 
-        # Initialize my_test_db
         client = MongoClient(conn_str)
         test_db = client.my_test_db
         if "users_test" not in test_db.list_collection_names():
@@ -441,7 +413,6 @@ async def initialize_mongodb(conn_str: str) -> bool:
 
 
 async def main():
-    # Load configuration from environment variables
     sql_conn_str = os.getenv(
         "SQL_CONNECTION_STRING",
         "mariadb+mariadbconnector://dataanalyzer:dataanalyzer_pwd@localhost:3306/my_test_db",
@@ -451,7 +422,6 @@ async def main():
         "mongodb://dataanalyzer:dataanalyzer_pwd@localhost:27017/my_test_db?authSource=test",
     )
 
-    # Validate connection strings
     def validate_connection_string(conn_str: str, db_type: str) -> bool:
         if not conn_str:
             return False
@@ -466,11 +436,9 @@ async def main():
                 return False
         return True
 
-    # Validate and fix connection strings if needed
     if not validate_connection_string(mongo_conn_str, "mongodb"):
         mongo_conn_str = mongo_conn_str.replace(":3306", ":27017")
 
-    # Initialize MongoDB if needed
     try:
         if await initialize_mongodb(mongo_conn_str):
             logger.info("MongoDB initialization successful")
@@ -479,13 +447,11 @@ async def main():
     except Exception as e:
         logger.error(f"Error during MongoDB setup: {e}")
 
-    # Rest of initialization
     openai_api_key = os.getenv("OPENAI_API_KEY", "ollama")
     openai_api_base = os.getenv("OPENAI_API_BASE_URL", "http://localhost:11434/v1")
     llm_model = os.getenv("LLM_MODEL", "qwen2.5:latest")
     coding_model = os.getenv("CODING_MODEL", "qwen2.5-coder:latest")
 
-    # Initialize schema if needed
     create_table = """
     CREATE TABLE IF NOT EXISTS users_test (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -504,7 +470,6 @@ async def main():
     ) as tmp
     WHERE NOT EXISTS (SELECT 1 FROM users_test LIMIT 1)"""
 
-    # Initialize DataAnalyzer with both models
     analyzer = DataAnalyzer(
         sql_connection_string=sql_conn_str,
         mongo_connection_string=mongo_conn_str,
@@ -514,15 +479,12 @@ async def main():
         coding_model_name=coding_model,
     )
 
-    # Initialize schema
     if analyzer.sql_db:
         try:
-            # Execute schema creation and data insertion separately
             for sql in [create_table, insert_data]:
                 try:
                     analyzer.sql_db.execute_raw_query(sql)
                 except Exception as e:
-                    # Try to fix SQL with LLM if there's an error
                     fixed_sql = await analyzer.sql_db.validate_and_fix_sql(sql, str(e))
                     analyzer.sql_db.execute_raw_query(fixed_sql)
 
@@ -532,14 +494,12 @@ async def main():
         except Exception as e:
             logger.error(f"Error initializing/verifying database schema: {e}")
 
-    # Initialize MongoDB schema if needed
     if analyzer.mongo_db:
         try:
             db_name = "my_test_db"
             collection_name = "users_test"
             db = analyzer.mongo_db.get_collection(db_name, collection_name)
 
-            # Check if the collection already has data
             logger.info(
                 f"Checking if collection '{db_name}.{collection_name}' contains data..."
             )
@@ -561,7 +521,7 @@ async def main():
                             {"name": "Anna Müller", "age": 28, "city": "Munich"},
                         ]
                     )
-                    # Verify data insertion
+
                     inserted_count = db.count_documents({})
                     logger.info(
                         f"Data successfully inserted into '{db_name}.{collection_name}'. Document count: {inserted_count}"
@@ -585,13 +545,11 @@ if __name__ == "__main__":
 
     async def run_example():
         try:
-            # Get analyzer instance from main()
             analyzer = await main()
 
-            # Example queries in German and English
             queries = [
-                "Zeige mir die Durchschnittsalter der Benutzer nach Stadt",  # German
-                "Show me the average age of users by city",  # English
+                "Zeige mir die Durchschnittsalter der Benutzer nach Stadt",
+                "Show me the average age of users by city",
             ]
 
             for query in queries:
@@ -617,5 +575,4 @@ if __name__ == "__main__":
             if "analyzer" in locals():
                 analyzer.close()
 
-    # Run the example
     asyncio.run(run_example())

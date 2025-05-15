@@ -76,7 +76,7 @@ class DatabaseConnector:
                 try:
                     db_dir.mkdir(parents=True, exist_ok=True)
                     logger.info(f"Ensured DB directory exists for SQLite: {db_dir}")
-                    # Update connection string to absolute path for consistency
+
                     self.connection_string = f"sqlite:///{db_path_obj.as_posix()}"
                 except OSError as e:
                     logger.error(
@@ -85,7 +85,6 @@ class DatabaseConnector:
                     raise
 
         try:
-            # echo=True can be useful for debugging SQL
             self.engine = create_engine(self.connection_string, echo=False)
             self.connection = self.engine.connect()
             self.db_type = self.engine.dialect.name
@@ -203,9 +202,7 @@ class DatabaseConnector:
                     # Commit is generally not needed for SELECTs, but if the query had side effects
                     # within a transaction, it would be part of the transaction block.
                     # connection.commit() # Only if part of an explicit transaction block started with connection.begin()
-                    return [
-                        dict(row) for row in rows
-                    ]  # Convert RowMappings to plain dicts
+                    return [dict(row) for row in rows]
                 else:
                     # For DML (INSERT, UPDATE, DELETE without RETURNING) or DDL
                     affected_rows = result.rowcount
@@ -229,7 +226,7 @@ class DatabaseConnector:
             logger.error(
                 f"SQLAlchemy error executing query '{query[:100]}...' with params {params}: {e}"
             )
-            # connection.rollback() # If part of an explicit transaction block
+
             raise
         except Exception as e:
             logger.exception(
@@ -278,7 +275,6 @@ Return only the corrected SQL query, no explanations.
     def execute_raw_query(self, query: str) -> None:
         """Execute a raw SQL query (for DDL operations)"""
         try:
-            # Split multiple statements and execute separately
             statements = [stmt.strip() for stmt in query.split(";") if stmt.strip()]
             with self.engine.begin() as conn:
                 for stmt in statements:
@@ -349,7 +345,6 @@ Return only the corrected SQL query, no explanations.
         try:
             inspector = inspect(self.engine)
 
-            # Check if table exists first
             if not inspector.has_table(table_name, schema=schema):
                 logger.warning(
                     f"Table '{table_name}' (schema: {schema}) not found by SQLAlchemy inspector."
@@ -374,34 +369,25 @@ Return only the corrected SQL query, no explanations.
                 schema_info.append(
                     {
                         "name": col["name"],
-                        "type": str(
-                            col["type"]
-                        ),  # Convert SQLAlchemy type object to string
+                        "type": str(col["type"]),
                         "nullable": col["nullable"],
-                        "default": col.get(
-                            "default"
-                        ),  # .get() as 'default' might not always be present
-                        "primary_key": col["name"]
-                        in primary_keys,  # More reliable than col.get('primary_key') for composite PKs
-                        "autoincrement": col.get(
-                            "autoincrement", False
-                        ),  # 'auto' or True/False
+                        "default": col.get("default"),
+                        "primary_key": col["name"] in primary_keys,
+                        "autoincrement": col.get("autoincrement", False),
                         "comment": col.get("comment"),
                     }
                 )
 
-            if not schema_info and columns:  # Should not happen if columns were found
+            if not schema_info and columns:
                 logger.warning(
                     f"Columns found for '{table_name}' but no schema_info generated."
                 )
-            elif not columns:  # Should be caught by has_table, but as a safeguard
+            elif not columns:
                 logger.warning(
                     f"No columns found for table '{table_name}' by SQLAlchemy inspector, though has_table might have been true."
                 )
 
-        except (
-            NoSuchTableError
-        ):  # Explicitly catch if inspector.get_columns raises this
+        except NoSuchTableError:
             logger.warning(
                 f"Table '{table_name}' (schema: {schema}) not found by SQLAlchemy inspector (NoSuchTableError)."
             )
@@ -442,7 +428,6 @@ Return only the corrected SQL query, no explanations.
 
         for table_name in table_names:
             try:
-                # Skip SQLAlchemy's internal migration table if it exists
                 if table_name == "alembic_version":
                     continue
                 db_schema[table_name] = self.describe_table(
@@ -461,7 +446,6 @@ Return only the corrected SQL query, no explanations.
         if not schema_info:
             raise ValueError("Database schema could not be retrieved")
 
-        # For now, return a basic query based on the schema
         if "users_test" in schema_info:
             return "SELECT city, AVG(age) as avg_age FROM users_test GROUP BY city;"
         else:
@@ -471,12 +455,10 @@ Return only the corrected SQL query, no explanations.
 if __name__ == "__main__":
     import os
 
-    # Best practice: Load from environment variables or a config file
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "ollama")
     OPENAI_API_BASE = os.getenv("OPENAI_API_BASE_URL", "http://localhost:11434/v1")
     LLM_MODEL = "qwen2.5-coder:latest"
 
-    # Example for SQLite
     db_connector = DatabaseConnector(
         connection_string="sqlite:///./my_app.db",
         openai_api_key=OPENAI_API_KEY,
@@ -484,7 +466,6 @@ if __name__ == "__main__":
         llm_model_name=LLM_MODEL,
     )
 
-    # Create a dummy table for testing
     try:
         db_connector.execute_query("DROP TABLE IF EXISTS employees")
         db_connector.execute_query("""
@@ -496,7 +477,7 @@ if __name__ == "__main__":
                 hire_date DATE
             )
         """)
-        # Use named parameters with a list of dictionaries for bulk insert
+
         employee_data = [
             {
                 "name": "Alice Smith",
@@ -525,7 +506,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error setting up dummy table: {e}")
 
-    # Test the natural language to SQL generation
     if OPENAI_API_KEY and OPENAI_API_BASE:
         nl_query = "Show me the names and salaries of all employees in the Engineering department earning more than 80000"
         try:
@@ -533,7 +513,6 @@ if __name__ == "__main__":
             print(f"\nNatural Language Query: {nl_query}")
             print(f"Generated SQL: {sql_query}")
 
-            # Optionally, execute the generated query
             if sql_query:
                 results = db_connector.execute_query(sql_query)
                 print(f"Results from generated SQL: {results}")
