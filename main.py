@@ -2,7 +2,7 @@ import os
 import logging
 import datetime
 import time
-import asyncio  # Add missing import for asyncio
+import asyncio
 
 from typing import Optional, Union, Dict, List, Any
 from tools.database import DatabaseConnector
@@ -33,96 +33,100 @@ class DataAnalyzer:
         self.sql_db = None
         self.mongo_db = None
         self.python_repl = PythonREPL()
-        self.openai_api_key = openai_api_key
-        self.openai_api_base = openai_api_base
+        self.openai_api_key = openai_api_key or "ollama"
+        self.openai_api_base = openai_api_base or "http://localhost:11434/v1"
         self.llm_model_name = llm_model_name
         self.coding_model_name = coding_model_name
         self.auth_source = auth_source
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
+        # Only initialize connections if connection strings are provided
         if sql_connection_string:
-            retry_count = 0
-            last_error = None
-            while retry_count < max_retries:
-                try:
-                    self.sql_db = DatabaseConnector(
-                        sql_connection_string,
-                        openai_api_key=openai_api_key,
-                        openai_api_base=openai_api_base,
-                        llm_model_name=coding_model_name,
-                    )
-                    logger.info("SQL database connection established")
-                    break
-                except Exception as e:
-                    last_error = e
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        logger.warning(
-                            f"Retry {retry_count}/{max_retries} connecting to SQL database..."
-                        )
-                        time.sleep(retry_delay)
-                    else:
-                        logger.error(
-                            f"Failed to connect to SQL database after {max_retries} attempts: {e}"
-                        )
-                        raise last_error
+            self._initialize_sql_connection(sql_connection_string)
 
         if mongo_connection_string:
-            retry_count = 0
-            last_error = None
-            while retry_count < max_retries:
-                try:
-                    from urllib.parse import urlparse, parse_qs, urlencode
+            self._initialize_mongo_connection(mongo_connection_string)
 
-                    parsed = urlparse(mongo_connection_string)
-                    query_params = parse_qs(parsed.query)
+    def _initialize_sql_connection(self, sql_connection_string: str):
+        """Initialize SQL database connection with retries"""
+        retry_count = 0
+        last_error = None
 
-                    if "authSource" not in query_params:
-                        query_params["authSource"] = [self.auth_source]
-                        new_query = urlencode(query_params, doseq=True)
-                        mongo_connection_string = parsed._replace(
-                            query=new_query
-                        ).geturl()
-
-                    safe_conn_str = mongo_connection_string.replace(
-                        "//" + mongo_connection_string.split("//")[1].split("@")[0],
-                        "//<credentials>",
+        while retry_count < self.max_retries:
+            try:
+                self.sql_db = DatabaseConnector(
+                    sql_connection_string,
+                    openai_api_key=self.openai_api_key,
+                    openai_api_base=self.openai_api_base,
+                    llm_model_name=self.coding_model_name,
+                )
+                logger.info("SQL database connection established")
+                return
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                if retry_count < self.max_retries:
+                    logger.warning(
+                        f"Retry {retry_count}/{self.max_retries} connecting to SQL database..."
                     )
-                    logger.info(f"Attempting MongoDB connection: {safe_conn_str}")
-
-                    logger.debug(
-                        f"Connection string passed to MongoDBConnector: {mongo_connection_string}"
-                    )
-
-                    logger.info("Initializing MongoDBConnector...")
-
-                    logger.info(
-                        f"MongoDBConnector using connection string: {mongo_connection_string}"
-                    )
-
-                    self.mongo_db = MongoDBConnector(
-                        mongo_connection_string,
-                        openai_api_key=openai_api_key,
-                        openai_api_base=openai_api_base,
-                        llm_model_name=coding_model_name,
-                        auth_source=query_params["authSource"][0],
-                    )
-
-                    break
-                except Exception as e:
-                    last_error = e
+                    time.sleep(self.retry_delay)
+                else:
                     logger.error(
-                        f"Error during MongoDB connection attempt {retry_count + 1}/{max_retries}: {e}"
+                        f"Failed to connect to SQL database after {self.max_retries} attempts: {e}"
                     )
-                    if retry_count < max_retries:
-                        logger.warning(
-                            f"Retrying MongoDB connection ({retry_count + 1}/{max_retries})..."
-                        )
-                        time.sleep(retry_delay)
-                    else:
-                        logger.error(
-                            f"Failed to connect to MongoDB after {max_retries} attempts: {e}"
-                        )
-                        raise last_error
+                    raise last_error
+
+    def _initialize_mongo_connection(self, mongo_connection_string: str):
+        """Initialize MongoDB connection with retries"""
+        retry_count = 0
+        last_error = None
+
+        while retry_count < self.max_retries:
+            try:
+                from urllib.parse import urlparse, parse_qs, urlencode
+
+                parsed = urlparse(mongo_connection_string)
+                query_params = parse_qs(parsed.query)
+
+                if "authSource" not in query_params:
+                    query_params["authSource"] = [self.auth_source]
+                    new_query = urlencode(query_params, doseq=True)
+                    mongo_connection_string = parsed._replace(query=new_query).geturl()
+
+                # Mask credentials for logging
+                safe_conn_str = mongo_connection_string.replace(
+                    "//" + mongo_connection_string.split("//")[1].split("@")[0],
+                    "//<credentials>",
+                )
+                logger.info(f"Attempting MongoDB connection: {safe_conn_str}")
+
+                self.mongo_db = MongoDBConnector(
+                    mongo_connection_string,
+                    openai_api_key=self.openai_api_key,
+                    openai_api_base=self.openai_api_base,
+                    llm_model_name=self.coding_model_name,
+                    auth_source=query_params["authSource"][0],
+                )
+                logger.info("MongoDB connection established")
+                return
+
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                logger.error(
+                    f"Error during MongoDB connection attempt {retry_count}/{self.max_retries}: {e}"
+                )
+                if retry_count < self.max_retries:
+                    logger.warning(
+                        f"Retrying MongoDB connection ({retry_count}/{self.max_retries})..."
+                    )
+                    time.sleep(self.retry_delay)
+                else:
+                    logger.error(
+                        f"Failed to connect to MongoDB after {self.max_retries} attempts: {e}"
+                    )
+                    raise last_error
 
     async def analyze_data(
         self,
@@ -198,7 +202,9 @@ class DataAnalyzer:
         try:
             if db_type == "sql":
                 if not self.sql_db:
-                    raise ValueError("SQL database connection not initialized")
+                    raise ValueError(
+                        "SQL database connection not initialized. Please configure and test the connection first."
+                    )
 
                 sql_query = await self.sql_db.generate_sql_from_natural_language(query)
                 results = self.sql_db.execute_query(sql_query)
@@ -206,7 +212,9 @@ class DataAnalyzer:
 
             elif db_type == "mongodb":
                 if not self.mongo_db:
-                    raise ValueError("MongoDB connection not initialized")
+                    raise ValueError(
+                        "MongoDB connection not initialized. Please configure and test the connection first."
+                    )
 
                 if hasattr(
                     self.mongo_db, "generate_mongodb_query_from_natural_language"
@@ -214,8 +222,7 @@ class DataAnalyzer:
                     logger.info(f"MongoDB: target_db={target_db}, query='{query}'")
                     mongo_query = (
                         self.mongo_db.generate_mongodb_query_from_natural_language(
-                            query,
-                            target_db_name="my_test_db",
+                            query, target_db_name="my_test_db"
                         )
                     )
                     logger.info(f"Query to MongoDB: {mongo_query}")
@@ -247,13 +254,9 @@ class DataAnalyzer:
 
                     return results
                 else:
-                    logger.error(
-                        "MongoDBConnector is not being used. Natural language queries for MongoDB are not supported with direct MongoClient. Please use MongoDBConnector."
+                    raise ValueError(
+                        "MongoDBConnector is not properly initialized for natural language queries"
                     )
-                    return {
-                        "error": "MongoDBConnector is not being used. Natural language queries for MongoDB are not supported with direct MongoClient.",
-                        "status": "error",
-                    }
 
         except Exception as e:
             logger.error(f"Error fetching data: {e}")
@@ -385,11 +388,40 @@ plt.xticks(rotation=45)
                 logger.error(f"Error closing MongoDB connection: {e}")
 
 
+async def create_analyzer_instance(
+    sql_connection_string: Optional[str] = None,
+    mongo_connection_string: Optional[str] = None,
+    openai_api_key: Optional[str] = None,
+    openai_api_base: Optional[str] = None,
+    llm_model_name: str = "qwen2.5:latest",
+    coding_model_name: str = "qwen2.5-coder:latest",
+    auth_source: str = "test",
+) -> DataAnalyzer:
+    """
+    Factory function to create a DataAnalyzer instance.
+    This is the recommended way to create instances from the frontend.
+    """
+    try:
+        analyzer = DataAnalyzer(
+            sql_connection_string=sql_connection_string,
+            mongo_connection_string=mongo_connection_string,
+            openai_api_key=openai_api_key,
+            openai_api_base=openai_api_base,
+            llm_model_name=llm_model_name,
+            coding_model_name=coding_model_name,
+            auth_source=auth_source,
+        )
+        return analyzer
+    except Exception as e:
+        logger.error(f"Error creating DataAnalyzer instance: {e}")
+        raise
+
+
 async def initialize_mongodb(conn_str: str) -> bool:
     """Initialize MongoDB with required user and collections"""
     try:
         logger.info("Verifying MongoDB user credentials...")
-        test_client = MongoClient(conn_str)
+        test_client = MongoClient(conn_str, serverSelectionTimeoutMS=5000)
         test_client["my_test_db"].list_collection_names()
         logger.info("MongoDB user credentials verified successfully")
 
@@ -406,6 +438,7 @@ async def initialize_mongodb(conn_str: str) -> bool:
             )
             logger.info("MongoDB test data initialized")
 
+        client.close()
         return True
     except Exception as e:
         logger.error(f"Error initializing MongoDB: {e}")
@@ -413,164 +446,158 @@ async def initialize_mongodb(conn_str: str) -> bool:
 
 
 async def main():
-    sql_conn_str = os.getenv(
-        "SQL_CONNECTION_STRING",
-        "mariadb+mariadbconnector://dataanalyzer:dataanalyzer_pwd@localhost:3306/my_test_db",
-    )
+    """
+    Main function - only runs when script is executed directly.
+    The frontend will use create_analyzer_instance() instead.
+    """
+    logger.info("Running DataAnalyzer in standalone mode...")
+
+    # Try to connect to MongoDB with default credentials
     mongo_conn_str = os.getenv(
         "MONGO_CONNECTION_STRING",
         "mongodb://dataanalyzer:dataanalyzer_pwd@localhost:27017/my_test_db?authSource=test",
     )
 
-    def validate_connection_string(conn_str: str, db_type: str) -> bool:
-        if not conn_str:
-            return False
-        if db_type == "mongodb":
-            if ":3306" in conn_str:
-                logger.error(
-                    "Invalid MongoDB port (3306) detected. Using default port 27017"
-                )
-                return False
-            if "authSource=" not in conn_str:
-                logger.error("MongoDB connection string missing authSource parameter")
-                return False
-        return True
-
-    if not validate_connection_string(mongo_conn_str, "mongodb"):
-        mongo_conn_str = mongo_conn_str.replace(":3306", ":27017")
-
+    # Try to initialize MongoDB with test data
     try:
         if await initialize_mongodb(mongo_conn_str):
             logger.info("MongoDB initialization successful")
         else:
-            logger.warning("MongoDB initialization failed, but continuing...")
+            logger.warning("MongoDB initialization failed")
     except Exception as e:
-        logger.error(f"Error during MongoDB setup: {e}")
+        logger.warning(f"MongoDB not available: {e}")
 
-    openai_api_key = os.getenv("OPENAI_API_KEY", "ollama")
-    openai_api_base = os.getenv("OPENAI_API_BASE_URL", "http://localhost:11434/v1")
-    llm_model = os.getenv("LLM_MODEL", "qwen2.5:latest")
-    coding_model = os.getenv("CODING_MODEL", "qwen2.5-coder:latest")
+    # Create analyzer with MongoDB connection
+    try:
+        analyzer = DataAnalyzer(
+            sql_connection_string=None,  # Don't try SQL unless explicitly requested
+            mongo_connection_string=mongo_conn_str,
+            openai_api_key=os.getenv("OPENAI_API_KEY", "ollama"),
+            openai_api_base=os.getenv(
+                "OPENAI_API_BASE_URL", "http://localhost:11434/v1"
+            ),
+            llm_model_name=os.getenv("LLM_MODEL", "qwen2.5:latest"),
+            coding_model_name=os.getenv("CODING_MODEL", "qwen2.5-coder:latest"),
+        )
 
-    create_table = """
-    CREATE TABLE IF NOT EXISTS users_test (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100),
-        age INT,
-        city VARCHAR(100)
-    )"""
+        # Verify what we actually got
+        connections = []
+        if analyzer.sql_db:
+            connections.append("SQL")
+        if analyzer.mongo_db:
+            connections.append("MongoDB")
 
-    insert_data = """
-    INSERT INTO users_test (name, age, city)
-    SELECT name, age, city FROM (
-        SELECT 'John Doe' as name, 25 as age, 'Berlin' as city UNION ALL
-        SELECT 'Jane Smith', 30, 'Hamburg' UNION ALL
-        SELECT 'Max Mustermann', 35, 'Berlin' UNION ALL
-        SELECT 'Anna Müller', 28, 'Munich'
-    ) as tmp
-    WHERE NOT EXISTS (SELECT 1 FROM users_test LIMIT 1)"""
+        if connections:
+            logger.info(f"DataAnalyzer initialized with: {', '.join(connections)}")
+            return analyzer
+        else:
+            logger.warning("No database connections established, but continuing...")
+            return analyzer
 
-    analyzer = DataAnalyzer(
-        sql_connection_string=sql_conn_str,
-        mongo_connection_string=mongo_conn_str,
-        openai_api_key=openai_api_key,
-        openai_api_base=openai_api_base,
-        llm_model_name=llm_model,
-        coding_model_name=coding_model,
-    )
-
-    if analyzer.sql_db:
-        try:
-            for sql in [create_table, insert_data]:
-                try:
-                    analyzer.sql_db.execute_raw_query(sql)
-                except Exception as e:
-                    fixed_sql = await analyzer.sql_db.validate_and_fix_sql(sql, str(e))
-                    analyzer.sql_db.execute_raw_query(fixed_sql)
-
-            logger.info("Database schema initialized successfully")
-            schema_info = analyzer.sql_db.get_schema_info()
-            logger.info(f"Schema verified with {len(schema_info)} tables")
-        except Exception as e:
-            logger.error(f"Error initializing/verifying database schema: {e}")
-
-    if analyzer.mongo_db:
-        try:
-            db_name = "my_test_db"
-            collection_name = "users_test"
-            db = analyzer.mongo_db.get_collection(db_name, collection_name)
-
-            logger.info(
-                f"Checking if collection '{db_name}.{collection_name}' contains data..."
-            )
-            document_count = db.count_documents({})
-            logger.info(
-                f"Document count in '{db_name}.{collection_name}': {document_count}"
-            )
-
-            if document_count == 0:
-                logger.info(
-                    f"Initializing MongoDB collection '{db_name}.{collection_name}' with test data..."
-                )
-                try:
-                    db.insert_many(
-                        [
-                            {"name": "John Doe", "age": 25, "city": "Berlin"},
-                            {"name": "Jane Smith", "age": 30, "city": "Hamburg"},
-                            {"name": "Max Mustermann", "age": 35, "city": "Berlin"},
-                            {"name": "Anna Müller", "age": 28, "city": "Munich"},
-                        ]
-                    )
-
-                    inserted_count = db.count_documents({})
-                    logger.info(
-                        f"Data successfully inserted into '{db_name}.{collection_name}'. Document count: {inserted_count}"
-                    )
-                except Exception as insert_error:
-                    logger.error(
-                        f"Error inserting data into collection '{db_name}.{collection_name}': {insert_error}"
-                    )
-            else:
-                logger.info(
-                    f"MongoDB collection '{db_name}.{collection_name}' already contains data."
-                )
-        except Exception as e:
-            logger.error(f"Error initializing MongoDB schema: {e}")
-
-    return analyzer
+    except Exception as e:
+        logger.error(f"Error creating analyzer: {e}")
+        logger.info("Creating analyzer without database connections for frontend use")
+        return DataAnalyzer()  # Return empty analyzer for frontend
 
 
 if __name__ == "__main__":
-    import asyncio
 
     async def run_example():
         try:
             analyzer = await main()
 
-            queries = [
-                "Zeige mir die Durchschnittsalter der Benutzer nach Stadt",
-                "Show me the average age of users by city",
-            ]
+            # Only run examples if we have connections
+            if analyzer.mongo_db:
+                # Simple direct MongoDB test without LLM
+                print("\n" + "=" * 50)
+                print("🔍 Data Analyzer MongoDB Test")
+                print("=" * 50)
 
-            for query in queries:
-                result = await analyzer.analyze_data(
-                    query=query,
-                    db_type="sql",
-                    target_db="my_test_db.users_test",
-                    visualization_required=True,
-                    report_format="markdown",
-                )
+                try:
+                    # Direct MongoDB query without LLM
+                    collection = analyzer.mongo_db.get_collection(
+                        "my_test_db", "users_test"
+                    )
+                    users = list(collection.find({}))
 
-                print(f"\nAnalysis Results for query: {query}")
-                print(f"Status: {result.get('status', 'error')}")
-                if result.get("status") == "error":
-                    print(f"Error: {result.get('error')}")
-                else:
-                    print("\nReport:")
-                    print(result["report"].get("summary", "No summary available"))
+                    print(f"✅ Successfully connected to MongoDB!")
+                    print(f"📊 Found {len(users)} users in the database:")
+
+                    for user in users:
+                        print(
+                            f"   - {user.get('name', 'Unknown')}, age {user.get('age', 'Unknown')}, from {user.get('city', 'Unknown')}"
+                        )
+
+                    print("\n💡 MongoDB connection is working!")
+                    print("🚀 Starting Gradio frontend...")
+                    print("=" * 50)
+
+                    # Start the Gradio interface
+                    try:
+                        from gradio_frontend import create_interface
+
+                        interface = create_interface()
+                        print("🌐 Interface available at: http://localhost:7860")
+                        interface.launch(
+                            server_name="0.0.0.0",
+                            server_port=7860,
+                            show_error=True,
+                            share=False,
+                        )
+                    except ImportError:
+                        print("❌ Gradio frontend not available")
+                        print("💡 Install with: pip install gradio")
+                    except Exception as e:
+                        print(f"❌ Error starting frontend: {e}")
+
+                except Exception as e:
+                    print(f"❌ Error testing MongoDB: {e}")
+
+            else:
+                print("\n" + "=" * 50)
+                print("🔍 Data Analyzer is ready!")
+                print("📋 No database connections available")
+                print("💡 Configure database connections first")
+                print("=" * 50)
+
+                # Still start the frontend for configuration
+                try:
+                    from gradio_frontend import create_interface
+
+                    interface = create_interface()
+                    print("🌐 Interface available at: http://localhost:7860")
+                    interface.launch(
+                        server_name="0.0.0.0",
+                        server_port=7860,
+                        show_error=True,
+                        share=False,
+                    )
+                except Exception as e:
+                    print(f"❌ Error starting frontend: {e}")
 
         except Exception as e:
-            logger.error(f"Error in example: {e}")
+            logger.error(f"Error in startup: {e}")
+            print("\n" + "=" * 50)
+            print("🔍 Data Analyzer - Starting frontend only")
+            print("=" * 50)
+
+            # Start frontend even if backend failed
+            try:
+                from gradio_frontend import create_interface
+
+                interface = create_interface()
+                print("🌐 Interface available at: http://localhost:7860")
+                interface.launch(
+                    server_name="0.0.0.0",
+                    server_port=7860,
+                    show_error=True,
+                    share=False,
+                )
+            except Exception as fe:
+                print(f"❌ Error starting frontend: {fe}")
+                print(
+                    "💡 Install dependencies: pip install gradio pandas plotly pymongo"
+                )
         finally:
             if "analyzer" in locals():
                 analyzer.close()

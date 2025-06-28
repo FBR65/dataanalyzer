@@ -1,6 +1,7 @@
 import io
 import base64
 import matplotlib.pyplot as plt
+import seaborn as sns  # Add seaborn import
 import sys
 from io import StringIO
 import traceback
@@ -27,6 +28,7 @@ class PythonREPL:
         self.exec_globals = {
             "pd": pd,
             "plt": plt,
+            "sns": sns,  # Add seaborn to globals
             "np": None,
             "Decimal": Decimal,
             "ROUND_HALF_UP": ROUND_HALF_UP,
@@ -65,6 +67,11 @@ async def data_visualization(code: str, repl: PythonREPL) -> str:
 from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Set style for better looking plots
+plt.style.use('default')
+sns.set_palette("husl")
 
 """
         + code
