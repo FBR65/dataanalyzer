@@ -1,0 +1,20 @@
+{
+  "source_dir": "./excel_files",
+  "duck_lake_path": "./ducklake",
+  "duckdb_path": "./databases/scheduled_data.duckdb",
+  "watch_mode": true,
+  "batch_interval": 3600,
+  "file_delay": 5,
+  "max_file_size_mb": 100,
+  "cleanup_days": 30,
+  "notifications": {
+    "email": null,
+    "webhook": null
+  },
+  "advanced_settings": {
+    "parallel_processing": true,
+    "compression": "snappy",
+    "memory_limit_mb": 2048,
+    "temp_dir": "./temp"
+  }
+}
