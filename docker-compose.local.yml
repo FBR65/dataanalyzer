@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Main Data Analyzer Application
+  # Main Data Analyzer Application (without Ollama dependency)
   dataanalyzer:
     build: .
     ports:
@@ -19,63 +19,14 @@ services:
       - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-http://host.docker.internal:11434/v1}
       - LLM_MODEL=${LLM_MODEL:-qwen2.5:latest}
       - CODING_MODEL=${CODING_MODEL:-qwen2.5-coder:latest}
-    depends_on:
-      - ollama
+      # Database connections to local instances
+      - MONGO_CONNECTION_STRING=${MONGO_CONNECTION_STRING:-mongodb://dataanalyzer:dataanalyzer_pwd@host.docker.internal:27017/my_test_db?authSource=test}
+      - MARIADB_CONNECTION_STRING=${MARIADB_CONNECTION_STRING:-mariadb+mariadbconnector://dataanalyzer:dataanalyzer_pwd@host.docker.internal:3306/my_test_db}
     networks:
       - dataanalyzer-network
     restart: unless-stopped
 
-  # Ollama for local LLM support
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    networks:
-      - dataanalyzer-network
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  # MongoDB for additional database support (optional)
-  mongodb:
-    image: mongo:7.0
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=admin123
-      - MONGO_INITDB_DATABASE=dataanalyzer
-    networks:
-      - dataanalyzer-network
-    restart: unless-stopped
-
-  # MariaDB for additional database support (optional)
-  mariadb:
-    image: mariadb:10.11
-    ports:
-      - "3306:3306"
-    volumes:
-      - mariadb_data:/var/lib/mysql
-    environment:
-      - MYSQL_ROOT_PASSWORD=root123
-      - MYSQL_DATABASE=dataanalyzer
-      - MYSQL_USER=dataanalyzer
-      - MYSQL_PASSWORD=dataanalyzer_pwd
-    networks:
-      - dataanalyzer-network
-    restart: unless-stopped
-
+  
   # Jupyter Notebook for additional data science workflows (optional)
   jupyter:
     image: jupyter/datascience-notebook:latest
@@ -92,6 +43,8 @@ services:
     networks:
       - dataanalyzer-network
     restart: unless-stopped
+    profiles:
+      - jupyter
 
   # Metabase for BI dashboards (optional)
   metabase:
@@ -106,11 +59,10 @@ services:
     networks:
       - dataanalyzer-network
     restart: unless-stopped
+    profiles:
+      - metabase
 
 volumes:
-  ollama_data:
-  mongodb_data:
-  mariadb_data:
   metabase_data:
 
 networks:

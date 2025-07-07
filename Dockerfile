@@ -14,17 +14,27 @@ RUN apt-get update && apt-get install -y \
     g++ \
     curl \
     build-essential \
+    default-libmysqlclient-dev \
+    libmariadb-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster Python package management
 RUN pip install uv
 
-# Copy project files
-COPY pyproject.toml uv.lock ./
-COPY . .
+# Copy project configuration files first
+COPY pyproject.toml ./
+COPY uv.lock ./
 
-# Install Python dependencies
-RUN uv sync --frozen
+# Initialize project and install dependencies
+RUN uv venv && \
+    uv sync --frozen
+
+# Set virtual environment path
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Copy all project files
+COPY . .
 
 # Create necessary directories
 RUN mkdir -p /app/databases \
@@ -43,5 +53,5 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:7860/ || exit 1
 
-# Run the enhanced frontend
-CMD ["uv", "run", "python", "enhanced_frontend.py"]
+# Activate virtual environment and run the enhanced frontend
+CMD ["/app/.venv/bin/python", "enhanced_frontend.py"]

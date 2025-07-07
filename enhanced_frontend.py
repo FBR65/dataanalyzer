@@ -332,6 +332,73 @@ def generate_visualization(vis_type: str, table_name: str = None) -> tuple:
         return None, f"❌ Visualization error: {str(e)}"
 
 
+def upload_excel_files(files) -> str:
+    """Upload Excel files to the excel_files directory"""
+    try:
+        if not files:
+            return "❌ No files selected"
+
+        # Ensure excel_files directory exists
+        excel_dir = "./excel_files"
+        os.makedirs(excel_dir, exist_ok=True)
+
+        uploaded_files = []
+        for file in files:
+            if file is not None:
+                # Get the filename
+                filename = os.path.basename(file.name)
+
+                # Check if it's an Excel file
+                if not filename.lower().endswith((".xlsx", ".xls")):
+                    continue
+
+                # Copy file to excel_files directory
+                destination = os.path.join(excel_dir, filename)
+
+                # Read and write the file
+                with open(file.name, "rb") as src:
+                    with open(destination, "wb") as dst:
+                        dst.write(src.read())
+
+                uploaded_files.append(filename)
+
+        if uploaded_files:
+            files_list = "\n".join([f"• {f}" for f in uploaded_files])
+            return f"✅ Successfully uploaded {len(uploaded_files)} Excel file(s):\n{files_list}"
+        else:
+            return "❌ No valid Excel files found. Please upload .xlsx or .xls files."
+
+    except Exception as e:
+        logger.error(f"Error uploading files: {e}")
+        return f"❌ Upload error: {str(e)}"
+
+
+def list_excel_files() -> str:
+    """List Excel files in the excel_files directory"""
+    try:
+        excel_dir = "./excel_files"
+        if not os.path.exists(excel_dir):
+            return "📁 Excel files directory not found"
+
+        excel_files = []
+        for file in os.listdir(excel_dir):
+            if file.lower().endswith((".xlsx", ".xls")):
+                file_path = os.path.join(excel_dir, file)
+                file_size = os.path.getsize(file_path)
+                file_size_mb = file_size / (1024 * 1024)
+                excel_files.append(f"• {file} ({file_size_mb:.1f} MB)")
+
+        if excel_files:
+            files_list = "\n".join(excel_files)
+            return f"📊 Found {len(excel_files)} Excel file(s):\n{files_list}"
+        else:
+            return "📁 No Excel files found in excel_files directory"
+
+    except Exception as e:
+        logger.error(f"Error listing files: {e}")
+        return f"❌ Error listing files: {str(e)}"
+
+
 def export_data(format_type: str, table_name: str = None) -> str:
     """Export data in various formats"""
     global current_data, duckdb_connector
@@ -388,7 +455,43 @@ def create_enhanced_interface():
         )
 
         with gr.Tabs():
-            # Tab 1: Excel Processing
+            # Tab 1: File Upload
+            with gr.Tab("📤 File Upload"):
+                gr.Markdown("## Excel-Dateien hochladen")
+
+                with gr.Row():
+                    with gr.Column():
+                        file_upload = gr.File(
+                            label="📁 Excel-Dateien auswählen",
+                            file_types=[".xlsx", ".xls"],
+                            file_count="multiple",
+                            height=200,
+                        )
+                        upload_btn = gr.Button("📤 Upload Files", variant="primary")
+
+                    with gr.Column():
+                        list_files_btn = gr.Button(
+                            "📋 List Current Files", variant="secondary"
+                        )
+                        clear_files_btn = gr.Button("🗑️ Clear All Files", variant="stop")
+
+                upload_status = gr.Textbox(
+                    label="Upload Status", interactive=False, lines=10
+                )
+
+                # Event handlers
+                upload_btn.click(
+                    upload_excel_files, inputs=[file_upload], outputs=[upload_status]
+                )
+
+                list_files_btn.click(list_excel_files, outputs=[upload_status])
+
+                clear_files_btn.click(
+                    lambda: "🗑️ Files cleared (refresh to see changes)",
+                    outputs=[upload_status],
+                )
+
+            # Tab 2: Excel Processing
             with gr.Tab("📁 Excel Processing"):
                 gr.Markdown("## Excel-Dateien verarbeiten")
 
@@ -434,7 +537,7 @@ def create_enhanced_interface():
                     outputs=[process_results, process_status],
                 )
 
-            # Tab 2: Data Explorer
+            # Tab 3: Data Explorer
             with gr.Tab("🔍 Data Explorer"):
                 gr.Markdown("## Daten erkunden und analysieren")
 
@@ -465,7 +568,7 @@ def create_enhanced_interface():
                 query_status = gr.Textbox(label="Query Status", interactive=False)
 
                 with gr.Row():
-                    query_results = gr.Dataframe(label="Query Results", max_rows=20)
+                    query_results = gr.Dataframe(label="Query Results")
                     analysis_results = gr.Dataframe(label="Analysis Results")
 
                 analysis_status = gr.Textbox(label="Analysis Status", interactive=False)
@@ -494,7 +597,7 @@ def create_enhanced_interface():
                     outputs=[gr.File(label="Downloaded File")],
                 )
 
-            # Tab 3: PyWalker Explorer (Tableau-like)
+            # Tab 4: PyWalker Explorer (Tableau-like)
             with gr.Tab("📈 Advanced Explorer"):
                 gr.Markdown("## PyWalker - Tableau-ähnliche Datenexploration")
 
@@ -534,7 +637,7 @@ def create_enhanced_interface():
                         "⚠️ PyWalker not available. Install with: `pip install pygwalker`"
                     )
 
-            # Tab 4: Visualizations
+            # Tab 5: Visualizations
             with gr.Tab("📊 Visualizations"):
                 gr.Markdown("## Datenvisualisierung")
 
